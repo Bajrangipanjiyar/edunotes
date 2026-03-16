@@ -1,109 +1,162 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Trash2, BookOpen, X, Loader2, IndianRupee } from "lucide-react";
-import { CLASSES } from "@/src/lib/constants"; // Hamari static classes file
+import { Plus, Edit, Trash2, BookOpen, X, Loader2 } from "lucide-react";
 
 export default function ManageSubjects() {
   const [subjects, setSubjects] = useState<any[]>([]);
+  const [classes, setClasses] = useState<any[]>([]);
+  const [streams, setStreams] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [classId, setClassId] = useState("");
   const [subjectName, setSubjectName] = useState("");
-  const [price, setPrice] = useState("");
+  const [selectedClassId, setSelectedClassId] = useState("");
+  const [selectedStreamId, setSelectedStreamId] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
-  // Saare subjects fetch karne ka function
-  const fetchSubjects = async () => {
+  const fetchData = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/subjects");
-      const data = await res.json();
-      if (res.ok) setSubjects(data.subjects);
+      // Teeno APIs ek sath call karo
+      const [subsRes, clsRes, strmRes] = await Promise.all([
+        fetch("/api/subjects"),
+        fetch("/api/classes"),
+        fetch("/api/streams")
+      ]);
+
+      if (subsRes.ok) setSubjects((await subsRes.json()).subjects);
+      if (clsRes.ok) setClasses((await clsRes.json()).classes);
+      if (strmRes.ok) setStreams((await strmRes.json()).streams);
+      
     } catch (error) {
-      console.error("Failed to fetch subjects");
+      console.error("Failed to fetch data");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchSubjects();
+    fetchData();
   }, []);
 
-  // Naya Subject Add karne ka function
+  // Selected Class ki details nikalna
+  const selectedClassDetails = classes.find(c => c._id === selectedClassId);
+  const showStreamDropdown = selectedClassDetails?.hasStream;
+
+  // Jab class change ho, toh purani stream hta do
+  const handleClassChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedClassId(e.target.value);
+    setSelectedStreamId("");
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    
+    setError("");
+
+    if (showStreamDropdown && !selectedStreamId) {
+      setError("Please select a stream for this class.");
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
-      await fetch("/api/subjects", {
-        method: "POST",
+      const method = editingId ? "PUT" : "POST";
+      const body = { 
+        id: editingId, 
+        name: subjectName, 
+        classId: selectedClassId,
+        streamId: showStreamDropdown ? selectedStreamId : null 
+      };
+
+      const res = await fetch("/api/subjects", {
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          classId: classId, 
-          name: subjectName, 
-          price: Number(price) 
-        }),
+        body: JSON.stringify(body),
       });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.message || "Something went wrong");
+        setIsSubmitting(false);
+        return;
+      }
       
-      // Reset form and close modal
-      setClassId("");
       setSubjectName("");
-      setPrice("");
+      setSelectedClassId("");
+      setSelectedStreamId("");
+      setEditingId(null);
       setIsModalOpen(false);
-      
-      // Refresh list
-      fetchSubjects();
+      fetchData(); 
     } catch (error) {
-      console.error("Error adding subject");
+      setError("Network error occurred");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Subject Delete karne ka function
   const handleDelete = async (id: string) => {
-    const confirmDelete = window.confirm("Are you sure you want to delete this subject?");
+    const confirmDelete = window.confirm("Are you sure? Deleting this subject will affect linked chapters and notes.");
     if (!confirmDelete) return;
 
     try {
       await fetch(`/api/subjects?id=${id}`, { method: "DELETE" });
-      fetchSubjects(); // Refresh data
+      fetchData();
     } catch (error) {
       console.error("Failed to delete subject");
     }
   };
 
-  // Class ID ("class-10") se uska display Name ("Class 10") nikalne ka helper function
-  const getClassName = (id: string) => {
-    const foundClass = CLASSES.find(c => c.id === id);
-    return foundClass ? foundClass.name : id;
+  const openAddModal = () => {
+    setSubjectName("");
+    setSelectedClassId("");
+    setSelectedStreamId("");
+    setEditingId(null);
+    setError("");
+    setIsModalOpen(true);
   };
+
+  const openEditModal = (subject: any) => {
+    setSubjectName(subject.name);
+    setSelectedClassId(subject.classId?._id || "");
+    setSelectedStreamId(subject.streamId?._id || "");
+    setEditingId(subject._id);
+    setError("");
+    setIsModalOpen(true);
+  };
+
+  // Filter streams bas wahi dikhane ke liye jo selected class se judi hon
+  const filteredStreams = streams.filter(s => {
+    // API se populate hoke stream mein classId object ya string dono ho sakta hai
+    const sClassId = s.classId?._id || s.classId;
+    return sClassId === selectedClassId;
+  });
 
   return (
     <div>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-2">
-            <BookOpen className="text-blue-600" /> Manage Subjects
+            <BookOpen className="text-orange-600" /> Manage Subjects
           </h1>
-          <p className="text-slate-500 mt-1">Add subjects, set prices, and assign them to classes.</p>
+          <p className="text-slate-500 mt-1">Add subjects to specific classes or streams (e.g., Physics for Class 11 Science).</p>
         </div>
         <button 
-          onClick={() => setIsModalOpen(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-semibold shadow-md shadow-blue-500/30 transition flex items-center gap-2"
+          onClick={openAddModal}
+          className="bg-orange-600 hover:bg-orange-700 text-white px-5 py-2.5 rounded-xl font-semibold shadow-md shadow-orange-500/30 transition flex items-center gap-2"
         >
           <Plus size={20} /> Add New Subject
         </button>
       </div>
 
-      {/* Subjects Table */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         {loading ? (
-          <div className="flex justify-center items-center py-20 text-blue-600">
+          <div className="flex justify-center items-center py-20 text-orange-600">
             <Loader2 className="animate-spin" size={40} />
           </div>
         ) : subjects.length === 0 ? (
@@ -118,29 +171,34 @@ export default function ManageSubjects() {
               <thead>
                 <tr className="bg-slate-50 text-slate-500 text-sm uppercase tracking-wider border-b border-slate-200">
                   <th className="px-6 py-4 font-semibold">Subject Name</th>
-                  <th className="px-6 py-4 font-semibold">Class</th>
-                  <th className="px-6 py-4 font-semibold">Price</th>
+                  <th className="px-6 py-4 font-semibold">Assigned Class</th>
+                  <th className="px-6 py-4 font-semibold">Stream</th>
                   <th className="px-6 py-4 font-semibold text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {subjects.map((subject) => (
                   <tr key={subject._id} className="hover:bg-slate-50 transition">
-                    <td className="px-6 py-4 font-semibold text-slate-800">{subject.name}</td>
-                    <td className="px-6 py-4 text-slate-600">
-                      <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm font-medium">
-                        {getClassName(subject.classId)}
+                    <td className="px-6 py-4 font-bold text-slate-800">{subject.name}</td>
+                    <td className="px-6 py-4">
+                      <span className="inline-flex items-center bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold border border-blue-200">
+                        {subject.classId?.name || "Unknown"}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-slate-800 font-bold flex items-center gap-1">
-                      <IndianRupee size={16} className="text-slate-500" /> {subject.price}
+                    <td className="px-6 py-4">
+                      {subject.streamId ? (
+                        <span className="inline-flex items-center bg-purple-50 text-purple-700 px-3 py-1 rounded-full text-xs font-bold border border-purple-200">
+                          {subject.streamId.name}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-sm italic">N/A</span>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <button 
-                        onClick={() => handleDelete(subject._id)} 
-                        className="p-2 text-red-500 hover:bg-red-100 rounded-md transition inline-flex"
-                        title="Delete Subject"
-                      >
+                      <button onClick={() => openEditModal(subject)} className="p-2 text-orange-600 hover:bg-orange-100 rounded-md transition mr-2" title="Edit">
+                        <Edit size={18} />
+                      </button>
+                      <button onClick={() => handleDelete(subject._id)} className="p-2 text-red-500 hover:bg-red-100 rounded-md transition" title="Delete">
                         <Trash2 size={18} />
                       </button>
                     </td>
@@ -152,70 +210,76 @@ export default function ManageSubjects() {
         )}
       </div>
 
-      {/* Add Subject Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center px-4">
           <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <h2 className="text-xl font-bold text-slate-800">Add New Subject</h2>
-              <button 
-                onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 transition"
-              >
+              <h2 className="text-xl font-bold text-slate-800">
+                {editingId ? "Edit Subject" : "Add New Subject"}
+              </h2>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition">
                 <X size={24} />
               </button>
             </div>
             
-            <form onSubmit={handleSubmit} className="p-6 space-y-5">
-              
-              {/* Class Selection Dropdown */}
-              <div>
+            <form onSubmit={handleSubmit} className="p-6">
+              {error && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm font-medium mb-4 border border-red-200">
+                  {error}
+                </div>
+              )}
+
+              {/* Class Dropdown */}
+              <div className="mb-5">
                 <label className="block text-sm font-bold text-slate-600 uppercase tracking-wide mb-2">Select Class</label>
                 <select 
                   required
-                  value={classId}
-                  onChange={(e) => setClassId(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                  value={selectedClassId}
+                  onChange={handleClassChange}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all outline-none font-medium text-slate-700"
                 >
                   <option value="" disabled>-- Choose a Class --</option>
-                  {CLASSES.map((cls) => (
-                    <option key={cls.id} value={cls.id}>{cls.name}</option>
+                  {classes.map((cls) => (
+                    <option key={cls._id} value={cls._id}>{cls.name}</option>
                   ))}
                 </select>
               </div>
 
+              {/* Conditional Stream Dropdown */}
+              {showStreamDropdown && (
+                <div className="mb-5 animate-in slide-in-from-top-2 duration-300">
+                  <label className="block text-sm font-bold text-slate-600 uppercase tracking-wide mb-2">Select Stream</label>
+                  <select 
+                    required
+                    value={selectedStreamId}
+                    onChange={(e) => setSelectedStreamId(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all outline-none font-medium text-slate-700"
+                  >
+                    <option value="" disabled>-- Choose a Stream --</option>
+                    {filteredStreams.map((strm) => (
+                      <option key={strm._id} value={strm._id}>{strm.name}</option>
+                    ))}
+                  </select>
+                  {filteredStreams.length === 0 && selectedClassId && (
+                    <p className="text-xs text-red-500 mt-2">No streams found for this class. Please add a stream first.</p>
+                  )}
+                </div>
+              )}
+
               {/* Subject Name Input */}
-              <div>
+              <div className="mb-8">
                 <label className="block text-sm font-bold text-slate-600 uppercase tracking-wide mb-2">Subject Name</label>
                 <input 
                   type="text" 
                   required
                   value={subjectName}
                   onChange={(e) => setSubjectName(e.target.value)}
-                  placeholder="e.g., Mathematics"
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                  placeholder="e.g., Physics, Biology, History"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all outline-none text-slate-800 font-medium"
                 />
               </div>
-
-              {/* Price Input */}
-              <div>
-                <label className="block text-sm font-bold text-slate-600 uppercase tracking-wide mb-2">Price (₹)</label>
-                <div className="relative">
-                  <IndianRupee className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-                  <input 
-                    type="number" 
-                    required
-                    min="0"
-                    value={price}
-                    onChange={(e) => setPrice(e.target.value)}
-                    placeholder="249"
-                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
-                  />
-                </div>
-              </div>
               
-              {/* Action Buttons */}
-              <div className="flex gap-3 justify-end pt-4">
+              <div className="flex gap-3 justify-end">
                 <button 
                   type="button"
                   onClick={() => setIsModalOpen(false)}
@@ -225,11 +289,11 @@ export default function ManageSubjects() {
                 </button>
                 <button 
                   type="submit"
-                  disabled={isSubmitting}
-                  className="bg-blue-600 hover:bg-blue-700 disabled:opacity-70 text-white px-6 py-2.5 rounded-xl font-semibold shadow-md transition flex items-center gap-2"
+                  disabled={isSubmitting || classes.length === 0 || (showStreamDropdown && filteredStreams.length === 0)}
+                  className="bg-orange-600 hover:bg-orange-700 disabled:opacity-70 text-white px-6 py-2.5 rounded-xl font-semibold shadow-md transition flex items-center gap-2"
                 >
                   {isSubmitting && <Loader2 className="animate-spin" size={18} />}
-                  Add Subject
+                  {editingId ? "Save Changes" : "Create Subject"}
                 </button>
               </div>
             </form>

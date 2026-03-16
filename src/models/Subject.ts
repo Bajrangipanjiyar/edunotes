@@ -2,14 +2,14 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface ISubject extends Document {
   name: string;
-  price: number;
-  pdfUrl?: string; // PDF link ke liye, isko abhi optional rakha hai
+  classId: mongoose.Types.ObjectId;
+  streamId?: mongoose.Types.ObjectId; // Optional
 }
 
 const SubjectSchema: Schema = new Schema({
   name: { type: String, required: true },
-  price: { type: Number, required: true },
-  pdfUrl: { type: String, default: "" }, 
+  classId: { type: Schema.Types.ObjectId, ref: 'Class', required: true },
+  streamId: { type: Schema.Types.ObjectId, ref: 'Stream' },
 }, { timestamps: true });
 
 export default mongoose.models.Subject || mongoose.model<ISubject>('Subject', SubjectSchema);

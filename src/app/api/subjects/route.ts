@@ -1,33 +1,40 @@
 import { NextResponse } from 'next/server';
 import dbConnect from '@/src/lib/mongodb';
 import SubjectModel from '@/src/models/Subject';
+import ClassModel from '@/src/models/Class';
+import StreamModel from '@/src/models/Stream';
 
-// 1. Saare subjects fetch karna (GET)
+// 1. Get all subjects
 export async function GET() {
   try {
     await dbConnect();
-    const subjects = await SubjectModel.find({}).sort({ createdAt: -1 });
+    // Populate se hume Class ka naam, uska stream status, aur Stream ka naam mil jayega
+    const subjects = await SubjectModel.find({})
+      .populate('classId', 'name hasStream')
+      .populate('streamId', 'name')
+      .sort({ createdAt: -1 });
+      
     return NextResponse.json({ subjects }, { status: 200 });
   } catch (error: any) {
     return NextResponse.json({ message: error.message }, { status: 500 });
   }
 }
 
-// 2. Naya subject add karna (POST)
+// 2. Create a new subject
 export async function POST(request: Request) {
   try {
     await dbConnect();
-    const { classId, name, price, pdfUrl } = await request.json();
+    const { name, classId, streamId } = await request.json();
 
-    if (!classId || !name || price === undefined) {
-      return NextResponse.json({ message: 'Class, Name, and Price are required' }, { status: 400 });
+    if (!name || !classId) {
+      return NextResponse.json({ message: 'Subject name and Class are required' }, { status: 400 });
     }
 
+    // Agar streamId khali hai (jaise Class 10 ke liye), toh use save mat karo
     const newSubject = await SubjectModel.create({ 
-      classId, 
       name, 
-      price: Number(price), 
-      pdfUrl: pdfUrl || "" 
+      classId, 
+      streamId: streamId || undefined 
     });
     
     return NextResponse.json({ message: 'Subject created successfully', subject: newSubject }, { status: 201 });
@@ -36,7 +43,29 @@ export async function POST(request: Request) {
   }
 }
 
-// 3. Subject delete karna (DELETE)
+// 3. Update a subject
+export async function PUT(request: Request) {
+  try {
+    await dbConnect();
+    const { id, name, classId, streamId } = await request.json();
+
+    if (!id || !name || !classId) {
+      return NextResponse.json({ message: 'ID, Name, and Class are required' }, { status: 400 });
+    }
+
+    const updatedSubject = await SubjectModel.findByIdAndUpdate(
+      id, 
+      { name, classId, streamId: streamId || undefined }, 
+      { new: true }
+    );
+    
+    return NextResponse.json({ message: 'Subject updated', subject: updatedSubject }, { status: 200 });
+  } catch (error: any) {
+    return NextResponse.json({ message: error.message }, { status: 500 });
+  }
+}
+
+// 4. Delete a subject
 export async function DELETE(request: Request) {
   try {
     await dbConnect();
